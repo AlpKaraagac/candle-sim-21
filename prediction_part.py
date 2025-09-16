@@ -81,7 +81,8 @@ def main():
     data_dir = "data"
     exp_root = os.path.join("experiments", experiment_name)
 
-    data = load_data(data_dir, exp_root, top=10)
+    data = load_data(data_dir, exp_root, top=5)
+    print(data)
     print("Prepared data for LLM with",
           len(data["candidates"]), "candidates (each with 21 x & 21 y).")
 
@@ -104,10 +105,9 @@ def main():
     config = types.GenerateContentConfig(
         temperature=0,
         response_mime_type="application/json",
-        thinking_config=types.ThinkingConfig(thinking_budget=0)
     )
 
-    model_name = "gemini-2.5-flash"
+    model_name = "gemini-2.5-pro"
 
     # ---- Call Gemini ----
     resp = client.models.generate_content(

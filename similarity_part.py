@@ -41,6 +41,29 @@ def select_non_overlapping(sorted_df, window_size, n_days, max_select=None):
     return pd.DataFrame(chosen).reset_index(drop=True)
 
 
+
+def _attach_window_dates(df_dates, candidates_df, T):
+    dates = df_dates.astype(str).to_numpy()
+
+    x_start_idx = candidates_df["start_idx"].to_numpy(dtype=int)
+    x_end_idx   = candidates_df["end_idx"].to_numpy(dtype=int)
+    y_start_idx = x_end_idx + 1           # == start_idx + T
+    y_end_idx   = y_start_idx + T - 1     # == start_idx + 2T - 1
+
+    n = len(dates)
+    valid = (
+        (x_start_idx >= 0) & (x_end_idx < n) &
+        (y_start_idx >= 0) & (y_end_idx < n)
+    )
+
+    out = candidates_df.copy()
+    out["x_start_date"] = np.where(valid, dates[x_start_idx], None)
+    out["x_end_date"]   = np.where(valid, dates[x_end_idx], None)
+    out["y_start_date"] = np.where(valid, dates[y_start_idx], None)
+    out["y_end_date"]   = np.where(valid, dates[y_end_idx], None)
+    return out
+
+
 def main():
     experiment_name = "baseline"
     print("Experiment Name:", experiment_name)
@@ -88,6 +111,9 @@ def main():
 
     max_select = None # limit to this many windows, or None for no limit
     selected = select_non_overlapping(all_candidates, window_size=T, n_days=N, max_select=max_select)
+    
+    selected = _attach_window_dates(df['date'], selected, T)
+    all_candidates = _attach_window_dates(df['date'], all_candidates, T)
 
     # Save both the full ranking and the non-overlapping selection
     all_path = os.path.join(exp_root, "all_candidate_windows_sorted.csv")

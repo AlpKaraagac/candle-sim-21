@@ -22,46 +22,65 @@ def _to_jsonable(x):
         return [_to_jsonable(v) for v in x]
     return x
 
-
-def load_data(data_dir, exp_root, top=None, t=21):
+def load_data(data_dir, exp_root, t=21, pct=0.10):
+    """
+    Load windows whose dtw_distance is within the lowest `pct` percentile.
+    - pct: fraction in [0,1], e.g. 0.10 keeps the lowest 10%.
+    """
     temp_df = pd.read_csv(os.path.join(data_dir, "convertcsv.csv"))
-    similar_windows = pd.read_csv(os.path.join(exp_root, "top_similar_windows_nonoverlap.csv")).sort_values(
-        "dtw_distance"
-    ).reset_index(drop=True)
-    if top is not None:
-        similar_windows = similar_windows.head(top)
+
+    similar_windows = pd.read_csv(
+        os.path.join(exp_root, "top_similar_windows_nonoverlap.csv")
+    ).copy()
+
+    # Make sure dtw_distance is numeric
+    similar_windows["dtw_distance"] = pd.to_numeric(
+        similar_windows["dtw_distance"], errors="coerce"
+    )
+    similar_windows = similar_windows.dropna(subset=["dtw_distance"])
+
+    # Keep only the lowest `pct` percentile
+    cutoff = similar_windows["dtw_distance"].quantile(pct)
+    similar_windows = (
+        similar_windows[similar_windows["dtw_distance"] <= cutoff]
+        .sort_values("dtw_distance")
+        .reset_index(drop=True)
+    )
+    
+    print(f"Selected {len(similar_windows)} windows within the lowest {pct*100:.1f}% percentile (cutoff={cutoff:.4f}).")
 
     X_list, y_list = [], []
-    for i in similar_windows['start_idx']:
+    for i in similar_windows["start_idx"]:
         i = int(i)
-        x = temp_df.iloc[i:i+t]['close'].values
-        y = temp_df.iloc[i+t:i+(t*2)]['close'].values
+        x = temp_df.iloc[i:i + t]["close"].values
+        y = temp_df.iloc[i + t:i + (t * 2)]["close"].values
         X_list.append(x)
         y_list.append(y)
 
     X = np.array(X_list)
     y = np.array(y_list)
-    query_window = temp_df.iloc[-t:]['close'].values
+    query_window = temp_df.iloc[-t:]["close"].values
 
     query = {
         "query_window": query_window,
-        "start_date": str(temp_df.iloc[-t]['date']) if 'date' in temp_df.columns else None,
-        "end_date": str(temp_df.iloc[-1]['date']) if 'date' in temp_df.columns else None,
+        "start_date": str(temp_df.iloc[-t]["date"]) if "date" in temp_df.columns else None,
+        "end_date": str(temp_df.iloc[-1]["date"]) if "date" in temp_df.columns else None,
     }
 
     candidates = []
     for i in range(X.shape[0]):
-        start_idx = int(similar_windows.iloc[i]['start_idx'])
-        end_idx = int(similar_windows.iloc[i]['end_idx']) if 'end_idx' in similar_windows.columns else start_idx + t - 1
-        start_date = str(temp_df.iloc[start_idx]['date']) if 'date' in temp_df.columns else None
-        end_date = str(temp_df.iloc[end_idx]['date']) if 'date' in temp_df.columns else None
+        start_idx = int(similar_windows.iloc[i]["start_idx"])
+        end_idx = int(similar_windows.iloc[i]["end_idx"]) if "end_idx" in similar_windows.columns else start_idx + t - 1
+        start_date = str(temp_df.iloc[start_idx]["date"]) if "date" in temp_df.columns else None
+        end_date = str(temp_df.iloc[end_idx]["date"]) if "date" in temp_df.columns else None
         candidates.append({
             "x": X[i],
             "y": y[i],
             "start_date": start_date,
             "end_date": end_date,
-            "dtw_distance": float(similar_windows.iloc[i]['dtw_distance'])
+            "dtw_distance": float(similar_windows.iloc[i]["dtw_distance"]),
         })
+
     return {
         "query": query,
         "candidates": candidates,
@@ -81,8 +100,7 @@ def main():
     data_dir = "data"
     exp_root = os.path.join("experiments", experiment_name)
 
-    data = load_data(data_dir, exp_root, top=5)
-    print(data)
+    data = load_data(data_dir, exp_root)
     print("Prepared data for LLM with",
           len(data["candidates"]), "candidates (each with 21 x & 21 y).")
 

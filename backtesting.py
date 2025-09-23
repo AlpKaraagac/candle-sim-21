@@ -32,6 +32,8 @@ def readd_elements(csv_path, rows):
         writer.writerows(rows)
 
 def main():
+    
+    experiment_name = "test"
     # For backtesting purposes, remove last 21 elements from the CSV
     csv_path = "data/convertcsv.csv"
     t = 21
@@ -40,16 +42,16 @@ def main():
     
     try:
         # Run the similarity part to prepare data
-        similarity_part.main()
+        similarity_part.main(experiment_name)
         
         # Run the prediction part to get forecasts
-        prediction_part.main()
+        prediction_part.main(experiment_name)
         
         # After prediction, re-add the removed elements back to the CSV
         readd_elements(csv_path, removed_rows)
         
         # And build the final output comparison CSV
-        testing.main()
+        testing.main(experiment_name)
     
     except Exception as e:
         print(f"An error occurred: {e}")

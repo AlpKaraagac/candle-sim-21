@@ -7,14 +7,14 @@ def read_gemini_forecast(file_path='gemini_forecast.json'):
         data = json.load(f)
     return data
 
-def main():
+def main(experiment_name="baseline-test"):
     data_dir = "data"
-    forecast_path = "experiments/baseline/gemini_forecast.json"
-    output_dir = "experiments/baseline"
+    forecast_path = os.path.join("experiments", experiment_name, "gemini_forecast.json")
+    output_dir = os.path.join("experiments", experiment_name)
     output_file = os.path.join(output_dir, "forecast_comparison.csv")
 
     # Read actuals
-    df = pd.read_csv(os.path.join(data_dir, "convertcsv.csv"))
+    df = pd.read_csv(os.path.join(data_dir, "convertcsv-1.csv"))
 
     possible_date_cols = ["date","time"]
     date_col = next((c for c in possible_date_cols if c in df.columns), None)
@@ -55,4 +55,4 @@ def main():
     out_df.to_csv(output_file, index=False)
 
 if __name__ == "__main__":
-    main()
+    main("test")

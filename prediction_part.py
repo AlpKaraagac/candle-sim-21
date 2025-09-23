@@ -22,89 +22,122 @@ def _to_jsonable(x):
         return [_to_jsonable(v) for v in x]
     return x
 
-def load_data(data_dir, exp_root, t=21, pct=0.10):
-    """
-    Load windows whose dtw_distance is within the lowest `pct` percentile.
-    - pct: fraction in [0,1], e.g. 0.10 keeps the lowest 10%.
-    """
-    temp_df = pd.read_csv(os.path.join(data_dir, "convertcsv.csv"))
 
-    similar_windows = pd.read_csv(
-        os.path.join(exp_root, "top_similar_windows_nonoverlap.csv")
-    ).copy()
+def load_data(
+    data_dir,
+    exp_root,
+    t=21,
+    cutoff=0.1,
+    max_len=230,
+    features=("close",),
+    keepdim="auto",
+):
+    df = pd.read_csv(os.path.join(data_dir, "convertcsv.csv"))
+    wins = pd.read_csv(os.path.join(exp_root, "all_candidate_windows_sorted.csv")).copy()
 
-    # Make sure dtw_distance is numeric
-    similar_windows["dtw_distance"] = pd.to_numeric(
-        similar_windows["dtw_distance"], errors="coerce"
-    )
-    similar_windows = similar_windows.dropna(subset=["dtw_distance"])
+    # filter by cutoff and (optional) cap
+    wins["dtw_distance"] = pd.to_numeric(wins["dtw_distance"], errors="coerce")
+    wins = wins.dropna(subset=["dtw_distance"])
+    wins = wins[wins["dtw_distance"] <= float(cutoff)].sort_values("dtw_distance").reset_index(drop=True)
+    if max_len is not None and max_len > 0:
+        wins = wins.head(int(max_len))
 
-    # Keep only the lowest `pct` percentile
-    cutoff = similar_windows["dtw_distance"].quantile(pct)
-    similar_windows = (
-        similar_windows[similar_windows["dtw_distance"] <= cutoff]
-        .sort_values("dtw_distance")
-        .reset_index(drop=True)
-    )
-    
-    print(f"Selected {len(similar_windows)} windows within the lowest {pct*100:.1f}% percentile (cutoff={cutoff:.4f}).")
+    D = len(features)
+    def _reshape(a2d):
+        if keepdim == "2d": return a2d
+        if keepdim == "1d":
+            if D != 1: raise ValueError("keepdim='1d' requires exactly one feature.")
+            return a2d[:, 0]
+        return a2d[:, 0] if D == 1 else a2d  # auto
 
-    X_list, y_list = [], []
-    for i in similar_windows["start_idx"]:
-        i = int(i)
-        x = temp_df.iloc[i:i + t]["close"].values
-        y = temp_df.iloc[i + t:i + (t * 2)]["close"].values
-        X_list.append(x)
-        y_list.append(y)
+    # build X/Y
+    X_list, Y_list, kept_rows = [], [], []
+    N = len(df)
+    cols = list(features)
 
-    X = np.array(X_list)
-    y = np.array(y_list)
-    query_window = temp_df.iloc[-t:]["close"].values
+    for _, row in wins.iterrows():
+        s = int(row["start_idx"])
+        # bounds
+        if s < 0 or s + t - 1 >= N: 
+            continue
+        if s + 2*t - 1 >= N: 
+            continue
+        x2d = df.loc[s:s+t-1, cols].to_numpy()
+        y2d = df.loc[s+t:s+2*t-1, cols].to_numpy()
 
-    query = {
-        "query_window": query_window,
-        "start_date": str(temp_df.iloc[-t]["date"]) if "date" in temp_df.columns else None,
-        "end_date": str(temp_df.iloc[-1]["date"]) if "date" in temp_df.columns else None,
-    }
+        X_list.append(_reshape(x2d))
+        Y_list.append(_reshape(y2d))
+        kept_rows.append(row)
 
+    X = np.array(X_list, dtype=float)
+    Y = np.array(Y_list, dtype=float)
+    wins = pd.DataFrame(kept_rows).reset_index(drop=True)
+
+    # query window (last T)
+    q2d = df.loc[len(df)-t:len(df)-1, cols].to_numpy()
+    query_window = _reshape(q2d)
+    q_start = str(df.iloc[-t]["date"]) if "date" in df.columns else None
+    q_end   = str(df.iloc[-1]["date"]) if "date" in df.columns else None
+    returned_dim = "2d" if (keepdim == "2d" or (keepdim == "auto" and D > 1)) else "1d"
+
+    # candidates payload
     candidates = []
-    for i in range(X.shape[0]):
-        start_idx = int(similar_windows.iloc[i]["start_idx"])
-        end_idx = int(similar_windows.iloc[i]["end_idx"]) if "end_idx" in similar_windows.columns else start_idx + t - 1
-        start_date = str(temp_df.iloc[start_idx]["date"]) if "date" in temp_df.columns else None
-        end_date = str(temp_df.iloc[end_idx]["date"]) if "date" in temp_df.columns else None
+    for i in range(len(wins)):
+        s = int(wins.iloc[i]["start_idx"])
+        e = int(wins.iloc[i]["end_idx"]) if "end_idx" in wins.columns else s + t - 1
+        start_date = str(df.iloc[s]["date"]) if "date" in df.columns else None
+        end_date   = str(df.iloc[e]["date"]) if "date" in df.columns else None
         candidates.append({
             "x": X[i],
-            "y": y[i],
+            "y": Y[i],
             "start_date": start_date,
             "end_date": end_date,
-            "dtw_distance": float(similar_windows.iloc[i]["dtw_distance"]),
+            "dtw_distance": float(wins.iloc[i]["dtw_distance"]),
         })
 
     return {
-        "query": query,
+        "query": {
+            "query_window": query_window,
+            "start_date": q_start,
+            "end_date": q_end,
+            "features": cols,
+            "window_length": t,
+            "returned_dim": returned_dim,
+        },
         "candidates": candidates,
     }
 
 
-def main():
+def main(experiment_name="baseline"):
     load_dotenv()
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("API_KEY not found in environment variables.")
     print("API Key loaded successfully.")
 
-    experiment_name = "baseline"
     print("Experiment Name:", experiment_name)
 
     data_dir = "data"
     exp_root = os.path.join("experiments", experiment_name)
 
-    data = load_data(data_dir, exp_root)
-    print("Prepared data for LLM with",
-          len(data["candidates"]), "candidates (each with 21 x & 21 y).")
+    # 1) Close only (backward-compatible 1D):
+    data = load_data(data_dir, exp_root, cutoff=0.05, features=("close",), keepdim="auto")
 
-    # Load your system prompt (the instructions for direct prediction)
+    # 2) OHLCV as 2D windows:
+    """
+    data = load_data(
+        data_dir,
+        exp_root,
+        cutoff=0.05,
+        features=("open", "high", "low", "close", "volume"),
+        keepdim="2d",
+    )
+    """
+
+    print("Prepared data for LLM with",
+          len(data["candidates"]), f"candidates (each with {data['query']['window_length']} timesteps).")
+    print("Feature set:", data["query"]["features"], "Returned dim:", data["query"]["returned_dim"])
+
     prompt_path = "system_prompt.md"
     with open(prompt_path, "r", encoding="utf-8") as f:
         system_prompt = f.read()
@@ -125,9 +158,8 @@ def main():
         response_mime_type="application/json",
     )
 
-    model_name = "gemini-2.5-pro"
+    model_name = "gemini-2.5-flash"
 
-    # ---- Call Gemini ----
     resp = client.models.generate_content(
         model=model_name,
         contents=contents,
@@ -137,7 +169,6 @@ def main():
     if not hasattr(resp, "text") or not resp.text:
         raise RuntimeError("Empty response from Gemini API.")
 
-    # Parse JSON returned by the model
     try:
         result = json.loads(resp.text)
     except json.JSONDecodeError as e:
@@ -154,4 +185,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(experiment_name="baseline-test", predict_one=False)

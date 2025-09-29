@@ -1,58 +1,46 @@
-import json
+# run_evaluation.py
+
 import os
-import pandas as pd
+import argparse
+import config
+from evaluation import load_actuals, load_forecast, generate_comparison_report
 
-def read_gemini_forecast(file_path='gemini_forecast.json'):
-    with open(file_path, 'r') as f:
-        data = json.load(f)
-    return data
+def main(exp_name: str, data_path: str):
+    """
+    Orchestrates the forecast evaluation process.
+    1. Loads actual and forecasted data.
+    2. Generates a comparison report.
+    3. Saves the report to a CSV file.
+    """
+    print(f"📊 Running Evaluation for Experiment: {exp_name}")
+    
+    exp_root = os.path.join("experiments", exp_name)
+    forecast_path = os.path.join(exp_root, config.OUTPUT_FILENAME) # From main config
+    output_path = os.path.join(exp_root, config.EVALUATION_PARAMS["output_filename"])
 
-def main(experiment_name="baseline-test"):
-    data_dir = "data"
-    forecast_path = os.path.join("experiments", experiment_name, "gemini_forecast.json")
-    output_dir = os.path.join("experiments", experiment_name)
-    output_file = os.path.join(output_dir, "forecast_comparison.csv")
+    try:
+        # 1. Load data sources
+        print("Loading actual and forecasted data...")
+        actuals_df = load_actuals(data_path, config.EVALUATION_PARAMS)
+        forecast_prices = load_forecast(forecast_path, config.EVALUATION_PARAMS)
+        
+        # 2. Generate comparison report
+        print("Generating comparison report...")
+        report_df = generate_comparison_report(actuals_df, forecast_prices)
+        
+        # 3. Save the report
+        report_df.to_csv(output_path, index=False)
+        print(f"✅ Success! Evaluation report saved to: {output_path}")
 
-    # Read actuals
-    df = pd.read_csv(os.path.join(data_dir, "convertcsv-1.csv"))
-
-    possible_date_cols = ["date","time"]
-    date_col = next((c for c in possible_date_cols if c in df.columns), None)
-
-    close_col = "close"
-    last21 = df.tail(21)
-
-    if date_col:
-        dates = pd.to_datetime(last21[date_col], errors="coerce").dt.strftime("%Y-%m-%d").tolist()
-    else:
-        # Fallback: use the row index as the date field
-        dates = [str(i) for i in last21.index.tolist()]
-
-    actuals = pd.to_numeric(last21[close_col], errors="coerce").astype(float).tolist()
-
-    # Read forecast
-    forecast = read_gemini_forecast(forecast_path)
-    forecasted_close = forecast.get("close_prices", None)
-    if not isinstance(forecasted_close, list):
-        raise ValueError("Forecast JSON must contain a list under 'close_prices'.")
-    forecasted_close = [float(x) for x in forecasted_close]
-
-    # Ensure we have 21 items
-    if len(forecasted_close) != 21 or len(actuals) != 21:
-        raise ValueError("Both actual and forecasted close prices must have exactly 21 entries.")
-
-    # Build comparison DataFrame
-    differences = [abs(a - p) for a, p in zip(actuals, forecasted_close)]
-    out_df = pd.DataFrame({
-        "date": dates,
-        "real": actuals,
-        "prediction": forecasted_close,
-        "difference": differences
-    })
-
-    # Write CSV
-    os.makedirs(output_dir, exist_ok=True)
-    out_df.to_csv(output_file, index=False)
+    except FileNotFoundError as e:
+        print(f"❌ Error: Could not find a required file. Make sure the forecast and data files exist. Details: {e}")
+    except (ValueError, KeyError) as e:
+        print(f"❌ Error: Data validation failed. Details: {e}")
 
 if __name__ == "__main__":
-    main("test")
+    parser = argparse.ArgumentParser(description="Run forecast vs. actuals evaluation.")
+    parser.add_argument("--exp", type=str, default=config.EXPERIMENT_NAME, help="Name of the experiment to evaluate.")
+    parser.add_argument("--data", type=str, default=config.DATA_PATH, help="Path to the original input data CSV file.")
+    
+    args = parser.parse_args()
+    main(exp_name=args.exp, data_path=args.data)

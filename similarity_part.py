@@ -1,98 +1,37 @@
-import numpy as np
+# run_dtw_experiment.py
 import os
 import pandas as pd
-from dtaidistance import dtw, dtw_ndim
-from sklearn.preprocessing import MinMaxScaler
+import argparse
 
+import config
+from dtw_processing import compute_dtw_similarities
 
-def generate_features(candidate_window):
+def main(exp_name: str, data_path: str):
     """
-    Expects values in this exact order:
-    [close, high, low, open, volume, totalQuantity, weightedAverage]
-    Returns a 1D numpy array of engineered features.
-    
-    TODO: expand this function with more features as needed.
+    Orchestrates the DTW similarity experiment.
+    1. Loads config and data.
+    2. Calls the processing function to compute distances.
+    3. Saves the results.
     """
-    close, high, low, open_, volume, _, _ = map(float, candidate_window)
-    return np.array([close], dtype=float)
-
-
-def _attach_window_dates(df_dates, candidates_df, T):
-    dates = df_dates.astype(str).to_numpy()
-
-    x_start_idx = candidates_df["start_idx"].to_numpy(dtype=int)
-    x_end_idx   = candidates_df["end_idx"].to_numpy(dtype=int)
-    y_start_idx = x_end_idx + 1           # == start_idx + T
-    y_end_idx   = y_start_idx + T - 1     # == start_idx + 2T - 1
-
-    n = len(dates)
-    valid = (
-        (x_start_idx >= 0) & (x_end_idx < n) &
-        (y_start_idx >= 0) & (y_end_idx < n)
-    )
-
-    out = candidates_df.copy()
-    out["x_start_date"] = np.where(valid, dates[x_start_idx], None)
-    out["x_end_date"]   = np.where(valid, dates[x_end_idx], None)
-    out["y_start_date"] = np.where(valid, dates[y_start_idx], None)
-    out["y_end_date"]   = np.where(valid, dates[y_end_idx], None)
-    return out
-
-
-def main(experiment_name="baseline-test", data_path="data/convertcsv.csv"):
-    print("Experiment Name:", experiment_name)
-
-    exp_root = os.path.join("experiments", experiment_name)
-    os.makedirs(exp_root, exist_ok=True)
+    print(f"▶️  Starting DTW Experiment: {exp_name}")
+    print(f"Loading data from: {data_path}")
 
     df = pd.read_csv(data_path)
-
-    # Identify feature columns by excluding 'date' and 'time'
-    feature_cols = [col for col in df.columns if col.lower() not in ['date', 'time']]
-    raw = df[feature_cols].values
-
-    if np.isnan(raw).any():
-        print("Warning: NaN values found. Forward-filling NaNs.")
-        raw = pd.DataFrame(raw).fillna(method='ffill').values
-
-    # Window size for similarity computation
-    T = 21
-    N = len(raw)
-    if N < 2*T:
-        raise ValueError(f"Need at least {2*T} rows; got {N}.")
-
-    feat = np.array([generate_features(raw[i]) for i in range(N)])
-
-    # Build query (last T days) and all valid candidate starts that do NOT overlap query
-    # Last query starts at N - T. Candidates can start at [0 .. N - 2T] inclusive.
-    query_window = feat[-T:].ravel()
-    candidate_starts = np.arange(0, N - 2*T + 1, dtype=int)
-
-    # Compute DTW distance for each candidate window
-    dists = []
-    for s in candidate_starts:
-        cand = feat[s:s+T].ravel()
-        d = dtw_ndim.distance(query_window, cand)
-        dists.append(d)
-    dists = np.array(dists, dtype=float)
-    dists = MinMaxScaler().fit_transform(dists.reshape(-1, 1)).ravel()
+    print("Computing DTW distances...")
+    results_df = compute_dtw_similarities(df, config.DTW_PARAMS)
+    exp_root = os.path.join("experiments", exp_name)
+    os.makedirs(exp_root, exist_ok=True)
     
-
-    all_candidates = pd.DataFrame({
-        "start_idx": candidate_starts,
-        "end_idx": candidate_starts + T - 1,
-        "dtw_distance": dists
-    }).sort_values("dtw_distance", ascending=True).reset_index(drop=True)
+    output_path = os.path.join(exp_root, "all_candidate_windows_sorted.csv")
+    results_df.to_csv(output_path, index=False)
     
-    all_candidates = _attach_window_dates(df['date'], all_candidates, T)
-
-    # Save both the full ranking and the non-overlapping selection
-    all_path = os.path.join(exp_root, "all_candidate_windows_sorted.csv")
-    all_candidates.to_csv(all_path, index=False)
-
-    print(f"Computed {len(all_candidates)} candidate windows (pre-query).")
-    print(f"Saved full ranking to: {all_path}")
-
+    print(f"✅ Success! Computed {len(results_df)} candidate windows.")
+    print(f"Saved results to: {output_path}")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Run DTW similarity search experiment.")
+    parser.add_argument("--exp", type=str, default=config.EXPERIMENT_NAME, help="Name of the experiment.")
+    parser.add_argument("--data", type=str, default=config.DATA_PATH, help="Path to the input data CSV file.")
+    
+    args = parser.parse_args()
+    main(exp_name=args.exp, data_path=args.data)

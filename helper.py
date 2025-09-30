@@ -12,11 +12,11 @@ outfile = sys.argv[2]
 run_name = sys.argv[3]
 
 df = pd.read_csv(infile)
-df['real'] = pd.to_numeric(df['real'], errors='coerce')
-df['prediction'] = pd.to_numeric(df['prediction'], errors='coerce')
+df['actual'] = pd.to_numeric(df['actual'], errors='coerce')
+df['forecast'] = pd.to_numeric(df['forecast'], errors='coerce')
 
-mae = (df['prediction'] - df['real']).abs().mean()
-rmse = np.sqrt(((df['prediction'] - df['real'])**2).mean())
+mae = (df['forecast'] - df['actual']).abs().mean()
+rmse = np.sqrt(((df['forecast'] - df['actual'])**2).mean())
 
 new_row = pd.DataFrame([{
     "name": run_name,

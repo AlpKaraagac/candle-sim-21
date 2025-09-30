@@ -11,16 +11,16 @@ LLM_PARAMS = {
 }
 
 SUMMARIZER_PARAMS = {
-    "enabled": False,
+    "enabled": True,
     "model_name": "gemini-1.5-flash-latest",
     "prefer_features": True,
     "temperature": 0.2,
     "response_mime_type": "text/plain",
 }
 
-EXPERIMENT_NAME = "test_experiment"
-DATA_PATH = "data/garfa.csv"
-CASH_FLOW_DATA_PATH = "data/GARFAflow.csv"
+EXPERIMENT_NAME = "test-full-kopol"
+DATA_PATH = "data/kopol.csv"
+CASH_FLOW_DATA_PATH = "data/KOPOLflow.csv"
 USE_CASH_FLOW_DATA = True
 CANDIDATES_FILENAME = "all_candidate_windows_sorted.csv"
 SYSTEM_PROMPT_PATH = "system_prompt.md"
@@ -29,7 +29,7 @@ OUTPUT_FILENAME = "gemini_forecast.json"
 DTW_PARAMS = {
     "t": 21,
     "normalize_windows": True,
-    "denoise_windows": False,
+    "denoise_windows": True,
     "denoise_method": "moving_average",
     "denoise_window_size": 3,
 }
@@ -63,5 +63,5 @@ EVALUATION_PARAMS = {
 
 BACKTESTING_PARAMS = {
     "enabled": True,
-    "backtest_horizon": 21,  # Number of steps to hold out for testing
+    "backtest_horizon": 21,
 }

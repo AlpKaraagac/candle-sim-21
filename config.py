@@ -28,8 +28,8 @@ OUTPUT_FILENAME = "gemini_forecast.json"
 
 DTW_PARAMS = {
     "t": 21,
-    "normalize_windows": True,
-    "denoise_windows": True,
+    "normalize_windows": False,
+    "denoise_windows": False,
     "denoise_method": "moving_average",
     "denoise_window_size": 3,
 }
